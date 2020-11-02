@@ -38,6 +38,6 @@
 
 void splashScreen(){
     OsdClear();
-    OsdWriteOffset( 3, "      M U L T I C O R E  2", 0, 0,0,0 ); 
+    OsdWriteOffset( 3, SPLASH, 0, 0,0,0 ); 
     delay(3000);
 }

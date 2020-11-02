@@ -39,14 +39,15 @@
 #include "SdFat.h"
 #include <SPI.h>
 #include <Wire.h>
+#include "pins.h"
 
-// spi version 1.08
-const unsigned char version[4] = "108"; 
+// spi version 1.10
+const unsigned char version[4] = "110"; 
 
 // the OSD screen width in chars
 #define SCREEN_WIDTH_IN_CHARS 32
 
-//  the OSX screen height in chars
+//  the OSD screen height in chars
 #define MENU_MAX_LINES 8
 
 // the keycodes produced by the core (lower 5bits)
@@ -99,14 +100,11 @@ const unsigned char version[4] = "108";
 // the maximum length of extensions (including ".")
 #define MAX_LENGTH_EXTENSION 5
 
-#define START_PIN  PA8
-#define nWAITpin  PA15
+// the maximum of options to be show
+#define MAX_OPTIONS 32
 
-#define NSS_PIN  PB12
-#define NSS_SET ( GPIOB->regs->BSRR = (1U << 12) )
-#define NSS_CLEAR ( GPIOB->regs->BRR = (1U << 12) )
-
-
+// the maximum length of an option title
+#define OPTION_LEN  32
 
 // one entry in a directory (may be either a file or directory)
 struct SPI_Directory {
@@ -114,26 +112,14 @@ struct SPI_Directory {
   enum entry_type { none=0,file=1, dir=2} entry_type;
 };
 
-
 unsigned char core_mod = 0;
 
-const int TCKpin = PB0;   
-const int TDIpin = PB1;    
-const int TMSpin = PB10; 
-
-//input    
-const int TDOpin = PB11; 
-
-const int CS_SDCARDpin  = PA4; 
-const int LEDpin = PC13;  
 unsigned char transfer_index =0;
 
 char core_name[32];
 char dat_name[32];
 
-SPIClass SPI_1(1);
-SdFat sd1(&SPI_1);
-//SdFat sd1(1);
+SdFat sd1(1);
 
 SdFile  file;
 SdFile  entry;
@@ -158,7 +144,6 @@ unsigned char last_ret;
 unsigned char cur_select = 0;
 
 char file_selected[64];
-
 
 // TODO: TRY TO USE endsWith, defined in fileSort (should it be there??)
 bool isExtension( char* filename, char* extension ) {
@@ -198,303 +183,6 @@ unsigned char codeToNumber (unsigned char code) {
 }
 
 
-bool navigateOptions() {
-  //char sd_buffer[1024] {
-  // "S,PRG,Load *.PRG;S,TAP/TZX,Load *.TAP;TC,Play/Stop TAP;OG,Menos sound,Off,On;OH,Mais sound,Off,On;OD,Tape sound,Off,On;O3,Video,PAL,NTSC;O2,CRT with load address,Yes,No;OAB,Scanlines,Off,25%,50%,75%;O45,Enable 8K+ Expansion,Off,8K,16K,24K;O6,Enable 3K Expansion,Off,On;O78,Enable 8k ROM,Off,RO,RW;O9,Audio Filter,On,Off;T0,Reset;T1,Reset with cart unload;." 
-  // };
-
-  Serial.println( "Entering navigateOptions()" );
-  
-  int cur_line = 0;
-  int page = 0;
-  int i,j,k;
-  int opt_sel = 0;
-  int total_options = 0;
-  int total_show = 0;
-  int last_page = 0;
-  
-  // keyboard events
-  int event; 
-  
-  char exts[ 32 ];
-  char ext[ 5 ];
-  
-  OsdClear( );
-
-  //show the menu to navigate
-  OSDVisible( true );
-  
-  cur_select = 0;
-
-  while( true ) {
-    opt_sel       = 0;
-    cur_line      = 0;
-    total_options = 0;
-    total_show    = 0;
-
-    // this while block parses the INI file.
-    // TODO it doesn't need to be done each loop
-    // TODO refactor the menu parsing from the navigation loop
-    // ini file parse position
-    int ini = 0;
-    // ini file total length (to be set)
-    int fim = 0;
-    while ( ini < strlen( sd_buffer ) ) {
-      
-      // encontra o proximo caractere ';' a partir da posição ini
-      for ( i = ini; i < strlen( sd_buffer ); i++ ) {
-        if ( sd_buffer[ i ] == ';' ) {
-          fim = i;
-          break;
-        } 
-        else {
-          fim = strlen( sd_buffer );
-        }
-      }
-        
-      char temp[ 128 ];
-      strncpy( temp, sd_buffer + ini, fim - ini );
-      temp[ fim - ini ] = '\0';
-      
-      ini = fim + 1;
-      
-      Serial.print( "linha:" );
-      Serial.println( temp );
-
-      // faz o parse da linha
-      char *token; 
-      token = strtok( temp, "," );
-
-      char line[ 32 ] = {"                               "};
-
-      //it's a LOAD option
-      if ( token [ 0 ] == 'S') {        
-        unsigned char s_index;
-        
-        if ( token[ 1 ] != ',' ) {
-          s_index = codeToNumber( token[ 1 ] );
-        }
-        else {
-          //default to "drive 1"
-          s_index = 1; 
-        }
-                
-        token = strtok( NULL, "," );
-    
-        if ( cur_select == cur_line ) {
-          strcpy( exts, token );
-        }
-        
-        token = strtok( NULL, "," );
-        strcpy( line, token );
-        line[ 32 ] = '\0';
-        
-        total_options++ ;
-
-        option_num[ opt_sel ] = 99;
-        option_sel[ opt_sel ] = s_index; 
-                
-        if ( cur_line >= page * 8 && total_show <= 8) {
-          OsdWriteOffset( cur_line - ( page * 8 ), line, ( cur_select == cur_line ) , 0, 0, 0 );
-          total_show++;
-        }
-                    
-        cur_line++;
-        opt_sel++;
-      }   
-      //it's an toggle option
-      else if ( token[ 0 ] == 'T' ) {
-
-        int num_op_token = codeToNumber( token[ 1 ] );
-        
-        token = strtok( NULL, "," );
-        strcpy( line, token );
-        line[32] = '\0';
-        
-        total_options++;
-        option_num[ opt_sel ] = 1;
-        option_sel[ opt_sel ] = ( num_op_token << 3 ); 
-        
-        if ( cur_line >= page * 8 && total_show <= 8 ) {
-          OsdWriteOffset( cur_line - ( page * 8), line, ( cur_select == cur_line ) , 0, 0, 0 );
-          total_show++;
-        }
-            
-        cur_line++;
-        opt_sel++;
-      }            
-      //it's an Option for menu
-      else if (token[0] == 'O') {
-
-        int num_op_token = codeToNumber( token[ 1 ] );
-                
-        token = strtok( NULL, "," );
-                
-        for ( j = 0; j < strlen( token ); j++ ) {
-          line[ j ] = token[ j ];
-        }
-        line[ j++ ] = ':';
-        line[ 32 ]  = '\0';
-                
-        token = strtok( NULL, "," );
-        total_options++ ;
-
-        unsigned char opt_counter = 0;
-                 
-        while ( token ) {
-          if ( ( option_sel[ opt_sel ] & 0x07 ) == opt_counter) {
-              for ( k = 0; k < strlen( token ); k++ ) {
-                  line[ 31 - strlen( token ) + k ] = token[ k ];
-              }
-          }
-          
-          // Serial.print ("token2 option:");
-          //  Serial.println (token);
-          token = strtok(NULL, ",");
-                      
-          opt_counter++;
-          option_num[opt_sel] = opt_counter;
-          option_sel[opt_sel] = (num_op_token<<3) | (option_sel[opt_sel] & 0x07); 
-        }
-                
-        // Serial.print ("opt[");
-        //   Serial.print (opt_sel);
-        //  Serial.print ("] = ");
-        //  Serial.println (opt[opt_sel], BIN);
-                  
-        if ( cur_line >= page * 8 && total_show <= 8 ) {
-          OsdWriteOffset( cur_line - ( page * 8 ), line, ( cur_select == cur_line ) , 0, 0, 0);
-          total_show++;
-        }
-                
-        cur_line++;
-        opt_sel++;
-  
-      } // end if 'O'
-        
-    } // end while (read options)
-    
-    // erase unused lines
-    while( total_show < MENU_MAX_LINES ) {          
-      OsdWriteOffset( total_show, "                                ", 0, 0,0,0 );
-      total_show++;
-    }
-
-    // set second SPI on PA12-PA15
-    SPI.setModule( 2 );
-    
-    // ensure SS stays high for now
-    NSS_SET; 
-    Serial.println( "Waiting keys! 1" );
-    NSS_CLEAR;
-    
-    //command to read from ps2 keyboad
-    key = SPI.transfer( 0x10 ); 
-
-    Serial.print( "last key" );
-    Serial.print( last_cmd );
-    Serial.print( ":" );
-    Serial.println( last_key );
-
-    // read keyboard and act
-    event = readKeyboard( &key, &cmd );
-  
-    if ( event == EVENT_KEYPRESS ) {
-      Serial.println("Key received 1");
-
-      if ( key == KEY_UP ) {
-        if ( cur_select > 0 ) {
-          cur_select--;
-        } else
-        if ( cur_select < page * 8 ) 
-        {
-          cur_select = page * 8 - 1;
-          page--;
-        }
-      }
-      else if ( key == KEY_DOW ) {
-         if ( cur_select < total_options - 1 ) cur_select++; 
-
-         if ( cur_select > ( ( page + 1 ) * 8 ) - 1 ) page++;
-      }
-      else if ( key == KEY_LFT ) { 
-         if ( page > 0 ) page--;  
-      }
-      else if ( key == KEY_RGT ) {
-         if ( page < ( ( total_options - 1 ) / 8 ) ) page++; 
-      }
-      else if ( key == KEY_RET ) {
-        if (option_num[cur_select] == 99) {  
-          transfer_index = option_sel[cur_select];
-          OsdClear();
-  
-          //Serial.print(ext);Serial.println("-----------------------------");
-          if ( navigateMenu( exts, true, false, false, true ) ) {
-            
-            NSS_SET; //slave deselected
-            
-            NSS_CLEAR; //slave selected
-            
-            Serial.println("we will execute a data pump 3!");     
-            dataPump();
-            
-            OSDVisible(false);
-            last_cmd = 1;
-            last_key = 31;
-            return(true);
-          }
-        }
-        else {
-          option_sel[cur_select]++;
-          
-          if ((option_sel[cur_select] & 0x07) == (option_num[cur_select]) && option_num[cur_select] > 1) 
-              option_sel[cur_select] = 0; 
-        }
-      } 
-      //F12 - abort
-      else if ( ( cmd == 0x01 || cmd == 0x02 || cmd == 0x03 ) ) { 
-  
-        if ( menu_opened + 1000 < millis( ) )
-            return false;  
-      }
-
-      if ( page != last_page ) {
-          last_page = page;
-          if ( key !=30 ) cur_select = page * 8;
-          OsdClear();
-      }
-    } // end if keypress
-
-    SendStatusWord();
-
-//        Serial.print("option_num ");
-//        for (int j=0; j<32; j++)
-//        {
-//          Serial.print (option_num[j]);
-//           Serial.print(",");
-//        }
-//        Serial.println(" ");
-//
-//         Serial.print("option_sel ");
-//        for (int j=0; j<32; j++)
-//        {
-//          Serial.print (option_sel[j]&0x07);
-//          Serial.print(",");
-//        }
-//        Serial.println(" ");
-//
-//        Serial.print("option_sel ");
-//        for (int j=0; j<32; j++)
-//        {
-//          Serial.print (option_sel[j]);
-//          Serial.print(",");
-//        }
-//        Serial.println(" ");
-
-              
-  } // end while     
-}
-
 void SendStatusWord (void)
 {
     //generate the Status Word
@@ -504,15 +192,15 @@ void SendStatusWord (void)
       statusWord += ( option_sel[ j ] & 0x07 ) << ( option_sel[ j ] >> 3 );    
     }
     
-    Serial.print( "statusWord " );
-    Serial.println( statusWord, BIN );
-    NSS_CLEAR;
+    //Serial.print( "statusWord " );
+    //Serial.println( statusWord, BIN );
+    SPI_SELECTED();
     
     // cmd to send the status data
     spi_osd_cmd_cont( 0x15 ); 
     spi32( statusWord );
     spi8( core_mod );
-    NSS_SET;
+    SPI_DESELECTED();
 }
 
 
@@ -602,126 +290,127 @@ bool navigateMenu( char* extension, bool canAbort, bool filter, bool showDir, bo
     // show files on screen
     show_files( orderedFiles, extensions, totalExtensions, showExtensions, currentPage, currentLine, totalFiles, &rolling_offset, &idleTime ); 
     
-      // read keyboard and act
-      event = readKeyboard( &key, &cmd );
+    // read keyboard and act
+    event = readKeyboard( &key, &cmd );
 
-      if ( event == EVENT_KEYPRESS ) {
-        idleTime = millis( );
-        rolling_offset = 0;
-        switch( key ){
-          case KEY_UP: // up
-            currentLine --;
-            if ( currentLine < 0 ) {
-              currentLine = totalFiles - 1;
-            }
-            break;
-          case KEY_DOW: // down
-            currentLine ++;
-            if ( currentLine >= totalFiles ) {
-              currentLine = 0;
-            }
-            break;          
-          case KEY_LFT: // left
-            currentLine -= MENU_MAX_LINES;
-            if ( currentLine < 0 ) {
-              currentLine = totalFiles + currentLine ;
-            }
-            break;
-          case KEY_RGT: // right
-            currentLine += MENU_MAX_LINES;
-            if ( currentLine >= totalFiles ) {
-              currentLine -= totalFiles;
-            }
-            break;          
+    if ( event == EVENT_KEYPRESS ) {
+      idleTime = millis( );
+      rolling_offset = 0;
+      switch( key ){
+        case KEY_UP: // up
+          currentLine --;
+          if ( currentLine < 0 ) {
+            currentLine = totalFiles - 1;
+          }
+          break;
+        case KEY_DOW: // down
+          currentLine ++;
+          if ( currentLine >= totalFiles ) {
+            currentLine = 0;
+          }
+          break;          
+        case KEY_LFT: // left
+          currentLine -= MENU_MAX_LINES;
+          if ( currentLine < 0 ) {
+            currentLine = totalFiles + currentLine ;
+          }
+          break;
+        case KEY_RGT: // right
+          currentLine += MENU_MAX_LINES;
+          if ( currentLine >= totalFiles ) {
+            currentLine -= totalFiles;
+          }
+          break;          
+          
+        case KEY_A:
+        case KEY_B:
+        case KEY_C:
+        case KEY_D:
+        case KEY_E:
+        case KEY_F:
+        case KEY_G:
+        case KEY_H:
+        case KEY_I:
+        case KEY_J:
+        case KEY_K:
+        case KEY_L:
+        case KEY_M:
+        case KEY_N:
+        case KEY_O:
+        case KEY_P:
+        case KEY_Q:
+        case KEY_R:
+        case KEY_S:
+        case KEY_T:
+        case KEY_U:
+        case KEY_V:
+        case KEY_W:
+        case KEY_X:
+        case KEY_Y:
+        case KEY_Z:
+        //case KEY_0:
+          currentLine = findFirstByInitial( mapKeyToChar( key ), totalFiles, currentLine, orderedFiles );
+          break;
+          
+        case KEY_RET: // enter
+          Serial.print( "Pressed enter... " );
+          Serial.print( orderedFiles[ currentLine ].entry_type );
+          Serial.println( " yep" );
+          
+          if ( orderedFiles[ currentLine ].entry_type == SPI_Directory::dir ) { 
             
-          case KEY_A:
-          case KEY_B:
-          case KEY_C:
-          case KEY_D:
-          case KEY_E:
-          case KEY_F:
-          case KEY_G:
-          case KEY_H:
-          case KEY_I:
-          case KEY_J:
-          case KEY_K:
-          case KEY_L:
-          case KEY_M:
-          case KEY_N:
-          case KEY_O:
-          case KEY_P:
-          case KEY_Q:
-          case KEY_R:
-          case KEY_S:
-          case KEY_T:
-          case KEY_U:
-          case KEY_V:
-          case KEY_W:
-          case KEY_X:
-          case KEY_Y:
-          case KEY_Z:
-          //case KEY_0:
-            currentLine = findFirstByInitial( mapKeyToChar( key ), totalFiles, currentLine, orderedFiles );
-            break;
-            
-          case KEY_RET: // enter
-            Serial.print( "Pressed enter... " );
-            Serial.print( orderedFiles[ currentLine ].entry_type );
-            Serial.println( " yep" );
-            
-            if ( orderedFiles[ currentLine ].entry_type == SPI_Directory::dir ) { 
-              
-              Serial.print( "Changing to directory " );
-              Serial.println( orderedFiles[ currentLine ].filename );
-              if ( strcmp( orderedFiles[ currentLine ].filename, ".." ) == 0 ) {
-                sd1.chdir( );
-              } else {
-                sd1.chdir( orderedFiles[ currentLine ].filename );
-              }
-                        
-              // retrieve files from this dir
-              totalFiles = 0;
-              sortFiles( sd1, orderedFiles, &totalFiles, extensions, totalExtensions, showDir );
-  
-              // if totalFIles is exactly MAX_SORTED_FILES, then some files may be not shown. Let's inform the user
-              if ( totalFiles == MAX_SORTED_FILES ) {
-                char errorMsg[ 33 ];
-                sprintf( errorMsg, ">= %d files in this directory.", MAX_SORTED_FILES );
-                errorScreen( errorMsg );
-                waitKeyPress( );
-              }
-              
-              currentPage = 0;
-              currentLine = 0;
-              
+            Serial.print( "Changing to directory " );
+            Serial.println( orderedFiles[ currentLine ].filename );
+            if ( strcmp( orderedFiles[ currentLine ].filename, ".." ) == 0 ) {
+              sd1.chdir( );
             } else {
-              // not a dir; then it is a file
-              selected=true; // TODO after putting "return true" here, this can be removed I guess
-              strcpy( file_selected, orderedFiles[ currentLine ].filename );
-              return true;
+              sd1.chdir( orderedFiles[ currentLine ].filename );
             }
-              break;
-            case KEY_NOTHING: // nothing was pressed
-              break;
-            default:
-              Serial.print("Unrecognized key pressed: ");
-              Serial.println(key);
-              break;
-        }
+                      
+            // retrieve files from this dir
+            totalFiles = 0;
+            sortFiles( sd1, orderedFiles, &totalFiles, extensions, totalExtensions, showDir );
 
-        //F12 - abort
-        if ( ( cmd == 0x01 || cmd == 0x02 || cmd == 0x03 ) && canAbort ) { 
-          Serial.println("Aborting");
-          return false;  
-        }
-              
-        // recalculate page
-        if ( currentPage != currentLine / MENU_MAX_LINES ) {
-          currentPage = currentLine / MENU_MAX_LINES;
-          OsdClear( );
-        }
+            // if totalFIles is exactly MAX_SORTED_FILES, then some files may be not shown. Let's inform the user
+            if ( totalFiles == MAX_SORTED_FILES ) {
+              char errorMsg[ 33 ];
+              sprintf( errorMsg, ">= %d files in this directory.", MAX_SORTED_FILES );
+              errorScreen( errorMsg );
+              waitKeyPress( );
+            }
+            
+            currentPage = 0;
+            currentLine = 0;
+            
+          } else {
+            // not a dir; then it is a file
+            selected=true; // TODO after putting "return true" here, this can be removed I guess
+            strcpy( file_selected, orderedFiles[ currentLine ].filename );
+            return true;
+          }
+            break;
+          case KEY_NOTHING: // nothing was pressed
+            break;
+          default:
+            Serial.print("Unrecognized key pressed: ");
+            Serial.println(key);
+            break;
+      }
+
+      //F12 - abort
+      if ( ( cmd == 0x01 || cmd == 0x02 || cmd == 0x03 ) && canAbort ) { 
+        Serial.println("Aborting");
+        return false;  
+      }
+            
+      // recalculate page
+      if ( currentPage != currentLine / MENU_MAX_LINES ) {
+        currentPage = currentLine / MENU_MAX_LINES;
+        OsdClear( );
       }
       
+    }// end if events
+    
   }// end while
 }
 
@@ -730,23 +419,23 @@ void waitACK (void)
   // set second SPI on PA12-PA15
   SPI.setModule(2);
   
-  // ensure SS stays high for now
-  NSS_SET; 
+  
+  SPI_DESELECTED(); 
   
   // syncronize and clear the SPI buffers
   // Serial.println ("waitACK");
   
   //wait for command acknoledge
   while( ret != 'K' ) {
-    NSS_CLEAR;  
+    SPI_SELECTED();  
     // clear the SPI buffers
     ret = SPI.transfer( 0 );
     
     // wait a little to receive the last bit
     delay(100);
     
-    // ensure SS stays high for now 
-    NSS_SET; 
+     
+    SPI_DESELECTED(); 
      
     if( last_ret != ret ) {
       last_ret = ret;
@@ -763,18 +452,18 @@ void waitACK (void)
 }
 
 
-void waitSlaveCommand( void ) {
+bool waitSlaveCommand( void ) {
     unsigned char cmd;
     unsigned int char_count = 0;
 
-    Serial.println( "\nwaitSlaveCommand" );
+    //Serial.println( "\nwaitSlaveCommand" );
 
     // set second SPI on PA12-PA15
-    SPI.setModule( 2 );
-    NSS_SET;
+    SPI.setModule( SPI_FPGA );
+    SPI_DESELECTED();
 
     //SS clear to send a comand
-    NSS_CLEAR;
+    SPI_SELECTED();
   
     //read data from slave
     ret = SPI.transfer(0x10); 
@@ -911,6 +600,20 @@ void waitSlaveCommand( void ) {
             file.close();
             // end .INI parse process
 
+            // add the "load other" at the end of Options menu
+            char_count--;
+            char temp[22] = { ";R,Load Other Core..." };
+            for ( int i = 0; i < sizeof( temp ); i ++ ) {
+              sd_buffer[ char_count ++ ] = temp[i];
+            }
+
+            sd_buffer[ char_count ] = ';';
+            sd_buffer[ ++ char_count ] = '\0';
+
+            Serial.print( "After 'other':" );
+            Serial.print( sd_buffer );
+            Serial.println( "|" );
+
             //check if we have a CONF_STR
             if( char_count > 1 && ( cmd == 0x01 || cmd == 0x03 ) ) {
                 char temp[64];
@@ -923,9 +626,9 @@ void waitSlaveCommand( void ) {
                 SPI.transfer(0x00); 
 
                 // slave deselected
-                NSS_SET; 
+                SPI_DESELECTED(); 
                 // slave selected
-                NSS_CLEAR; 
+                SPI_SELECTED(); 
 
                 //initial data pump only when cmd=0x01 
                 if( sd_buffer[0] == 'P' && sd_buffer[1] == ',' && cmd == 0x01 ) {
@@ -953,7 +656,10 @@ void waitSlaveCommand( void ) {
                 } else {
                     //we have an "options" menu
                     SendStatusWord(); //update the core with the read options
-                    navigateOptions();
+                    // is it a new core load?
+                    if ( ! navigateOptions() ) {
+                      return false; 
+                    }
                     SaveIni(); //save the options on SD card
                     OSDVisible(false);
                 }
@@ -962,23 +668,23 @@ void waitSlaveCommand( void ) {
                 //we dont have a STR_CONF, so show the menu or CMD = 0x02
                 Serial.println( "CMD 0x02" );
                 Serial.println( "we dont have a STR_CONF, so show the menu" );
-                NSS_SET; 
+                SPI_DESELECTED(); 
 
                 //show the menu to navigate
                 OSDVisible( true );
 
                 if( navigateMenu( "", true, false, false, false ) ) {
-                    //slave deselected
-                    NSS_SET; 
+                    
+                    SPI_DESELECTED(); 
                     // command 0x55 - UIO_FILE_INDEX;
                     spi_osd_cmd_cont( 0x55 );
                     // index as 0x01 for Sinclair QL  
                     SPI.transfer( 0x01 ); 
 
-                    //slave deselected
-                    NSS_SET; 
+                    
+                    SPI_DESELECTED(); 
                     //slave selected
-                    NSS_CLEAR; 
+                    SPI_SELECTED(); 
 
                     Serial.println( "we will execute a data pump 2!" );     
                     dataPump( );
@@ -996,14 +702,22 @@ void waitSlaveCommand( void ) {
     }
    
     DisableOsdSPI( );
+    return true;
 }
 
 void SaveIni(void) {
-    char temp_file[9] = {"temp.ini"};
+    char temp_file[9] = { "temp.ini" };
     SdFile  tfile;
 
     strcpy(file_selected,core_name);
     strcat(file_selected,".ini");
+
+    if ( strncmp( file_selected, ".ini", 4 ) == 0 ) 
+    {
+       //no core name, so don't save anything
+        Serial.print( "Aborting SaveIni" );
+        return;
+    }
 
     if ( ! sd1.exists( file_selected ) ) { 
         file.open( file_selected, FILE_WRITE );
@@ -1104,10 +818,10 @@ void dataPump( void ) {
         read_count++;     
     }
                  
-    SPI.setModule( 2 );
+    SPI.setModule( SPI_FPGA );
 
-    // ensure SS stays high for now
-    NSS_SET; 
+    
+    SPI_DESELECTED(); 
 
     Serial.print( "\ndata pump : " );
     Serial.println( file_selected );
@@ -1124,7 +838,7 @@ void dataPump( void ) {
     Serial.print( "index : " );
     Serial.println( transfer_index );
 
-    NSS_CLEAR;
+    SPI_SELECTED();
 
     //send the transfer_index
     // command 0x55 - UIO_FILE_INDEX;
@@ -1132,7 +846,7 @@ void dataPump( void ) {
     
     // index 0 - ROM, 1 = drive 1, 2 = drive 2
     spi8( transfer_index ); 
-    NSS_SET;
+    SPI_DESELECTED();
 
     // config buffer - 16 bytes
     spi_osd_cmd_cont( 0x60 ); //cmd to fill the config buffer
@@ -1161,7 +875,11 @@ void dataPump( void ) {
 
     DisableOsdSPI( ); 
 
-    SPI.setModule( 1 ); // select the SD Card SPI 
+    // select the SD Card SPI 
+    SPI.setModule( SPI_SD ); 
+
+    unsigned int startTime = millis();
+    unsigned int duration = 0;
         
     for (int k = 1; k < read_count + 1; k++ ) 
     { 
@@ -1171,23 +889,35 @@ void dataPump( void ) {
         val = file.read( sd_buffer, to_read );
 
         // select the second SPI (connected on FPGA)
-        SPI.setModule( 2 );
+        SPI.setModule( SPI_FPGA );
 
         //SS clear to send a comand 
-        NSS_CLEAR;  
+        SPI_SELECTED();  
         ret = SPI.transfer( 0x61 ); //start the data pump to slave
 
-        for ( int f=0; f < to_read; f++ ) {
+/*     esse faz o SF alpha em 29 segundos
+        for ( int f=0; f < to_read; f+=4 ) {
             //check for a WAIT state
-            if ( digitalRead( nWAITpin ) == LOW ) {
+            if ( ! CHECK_WAIT() ) {
                 Serial.println( "waiting SPI" );
                 delay( 1 );
             } 
-            ret = SPI.transfer( sd_buffer[ f ] );
+            
+            SPI.write( sd_buffer[ f     ]);
+            SPI.write( sd_buffer[ f + 1 ]);
+            SPI.write( sd_buffer[ f + 2 ]);
+            SPI.write( sd_buffer[ f + 3 ]);
                 
         }
+        */
+
+        // substitui o bloco acima. SF alpha em 22 segundos
+        SPI.write(sd_buffer, to_read);
+
+
+        
         // end the pumped block
-        NSS_SET;                
+        SPI_DESELECTED();                
 
         loaded += to_read;
         percent = loaded * 100 / file_size;
@@ -1210,16 +940,16 @@ void dataPump( void ) {
         OSD_progressBar( 7, buffer_temp, percent );
 
         // select the SD Card SPI   
-        SPI.setModule( 1 ); 
+        SPI.setModule( SPI_SD ); 
 
         state++;
 
         //led off
-        digitalWrite( LEDpin, state >> 2 & 1 ); 
+        digitalWrite( PIN_LED, state >> 2 & 1 ); 
     }
 
     //led off
-    digitalWrite( LEDpin, HIGH ); 
+    digitalWrite( PIN_LED, HIGH ); 
     file.close();
       
     // CLEAR THE LOADING MESSAGE
@@ -1228,6 +958,10 @@ void dataPump( void ) {
 
     Serial.println( "end data" );
 
+    duration = millis() - startTime;
+    Serial.print( "data pump in milliseconds: " );
+    Serial.println( duration );
+    
     crc_read = 0;
     crc_write = 0;
         
@@ -1235,21 +969,27 @@ void dataPump( void ) {
     spi_osd_cmd_cont( 0x62 ); 
 
     // SS end sequence
-    NSS_SET; 
+    SPI_DESELECTED(); 
 }
-
-
 
 //   JTAG
 void setupJTAG( ) {
-    pinMode( TCKpin, OUTPUT );
-    pinMode( TDOpin, INPUT_PULLUP );
-    pinMode( TMSpin, OUTPUT );
-    pinMode( TDIpin, OUTPUT );
 
-    digitalWrite( TCKpin, LOW );
-    digitalWrite( TMSpin, LOW );
-    digitalWrite( TDIpin, LOW );
+    pinMode( PIN_TCK, OUTPUT );
+    pinMode( PIN_TDO, INPUT_PULLUP );
+    pinMode( PIN_TMS, OUTPUT );
+    pinMode( PIN_TDI, OUTPUT );
+    digitalWrite( PIN_TCK, LOW );
+    digitalWrite( PIN_TMS, LOW );
+    digitalWrite( PIN_TDI, LOW );
+}
+
+void releaseJTAG( ) {
+
+    pinMode( PIN_TCK, INPUT_PULLUP );
+    pinMode( PIN_TDO, INPUT_PULLUP );
+    pinMode( PIN_TMS, INPUT_PULLUP );
+    pinMode( PIN_TDI, INPUT_PULLUP );
 }
 
 void error( ) {
@@ -1261,54 +1001,77 @@ void program_FPGA( ) {
     unsigned long bitcount = 0;
     bool last = false;
     int n = 0; 
+
+    Serial.print( "Programming" );    
+    JTAG_PREprogram(); 
+
     int mark_pos = 0;
     int total = file.fileSize();
     int divisor = total / 32; 
     int state = LOW;
 
-    Serial.print ( "Programming" );    
-    JTAG_PREprogram(); 
+    unsigned long file_size;
+    unsigned int read_count = 0;
+    unsigned char val;
+    unsigned long to_read;
+    unsigned long loaded = 0;
+    int value;
 
-   
-    while( bitcount < total ){         
-        unsigned char val = file.read( );
-        int value;
+    file_size = file.fileSize();
+    read_count = file_size / sizeof( sd_buffer );
+    if ( file_size % sizeof( sd_buffer ) != 0 ) {
+      read_count ++;
+    }
+
+    // no Interrupts()
+    for ( int k = 1; k < read_count + 1; k++ ) { 
+      to_read = ( file_size >= ( sizeof( sd_buffer ) * k ) ) ? sizeof( sd_buffer ): file_size - loaded + 1;
+      val = file.read( sd_buffer, to_read );
+      for( int f = 0; f < to_read; f ++ ) {
         
-        if ( bitcount % divisor == 0 ) 
-        {
+        if ( bitcount % divisor == 0 ) {
             Serial.print( "*" );
             state = ! state;
-            digitalWrite( LEDpin, state );
+            digitalWrite( PIN_LED, state );
         }
         bitcount++ ;
   
         for( n = 0; n <= 7; n++ )
         {
-            value = ( ( val >> n ) & 0x01 );
-            digitalWrite( TDIpin, value );
-            JTAG_clock( );
+          if ( ( sd_buffer[ f ] >> n ) & 0x01 ) {
+            // tdipin = 1
+            GPIOB->regs->ODR |= 2;
+          }
+          else {
+            // tdipin = 0
+            GPIOB->regs->ODR &= ~(2);  
+          }
+          
+           JTAG_clock();
         }
+      }
+      loaded += to_read;
+  }
 
-    }
+  /* AKL (Version1.7): Dump additional 16 bytes of 0xFF at the end of the RBF file */
+  GPIOB->regs->ODR |= 1;
+  for ( n = 0; n < 127; n++ ) {
+    GPIOB->regs->ODR |= 1;
+    GPIOB->regs->ODR &= ~(1);    
+  }
 
-    /* AKL (Version1.7): Dump additional 16 bytes of 0xFF at the end of the RBF file */
-    for ( n = 0; n < 127; n++ ) {
-        digitalWrite( TDIpin, HIGH );
-        JTAG_clock( );
-    }
- 
-    digitalWrite( TDIpin, HIGH ); 
-    digitalWrite( TMSpin, HIGH );
-    JTAG_clock( );
+  digitalWrite( PIN_TDI, HIGH ); 
+  digitalWrite( PIN_TMS, HIGH );
+  JTAG_clock( );
 
-    Serial.println( "" );
-    Serial.print( "Programmed " );
-    Serial.print( bitcount );
-    Serial.println( " bytes" );
+  Serial.println( "" );
+  Serial.print( "Programmed " );
+  Serial.print( bitcount );
+  Serial.println( " bytes" );
 
-    file.close();
+  file.close();
 
-    JTAG_POSprogram();
+  JTAG_POSprogram();
 }
 
 
@@ -1367,8 +1130,8 @@ void setup( void )
     Serial.begin( 115200 );
  
     while ( ! Serial ) {
-        // wait for serial port to connect. Needed for native USB port only
-        delay( 100 ); 
+      // wait for serial port to connect. Needed for native USB port only
+      delay( 100 ); 
     }
     
     Serial.println( "Serial ok..." );
@@ -1376,61 +1139,51 @@ void setup( void )
     Serial.print( "Initializing SPI version " );
     Serial.println( ( char* ) version );
 
-    pinMode( nWAITpin, INPUT_PULLUP );
-    pinMode( LEDpin, OUTPUT );
-    pinMode( TCKpin, INPUT );
-    pinMode( TDOpin, INPUT );
-    pinMode( TMSpin, INPUT );
-    pinMode( TDIpin, INPUT );
+    pinMode( PIN_nWAIT, INPUT_PULLUP );
+    pinMode( PIN_LED, OUTPUT );
+
     
     // configure NSS pin
-    pinMode( NSS_PIN, OUTPUT ); 
-    pinMode( START_PIN, INPUT );
+    pinMode( PIN_NSS, OUTPUT ); 
 
     // set second SPI on PA12-PA15
-    SPI.setModule( 2 );
+    SPI.setModule( SPI_FPGA );
 
-    // ensure SS stays high for now
-    NSS_SET; 
+    //setup SPI interface
+    SPI_DESELECTED(); 
     SPI.begin( );
-
-    // SPI_CLOCK_DIV2 => 4mhz SPI
-    // SPI_CLOCK_DIV4 => 2mhz SPI
-    // SPI_CLOCK_DIV8 => 1mhz SPI
-    SPI.setClockDivider( SPI_CLOCK_DIV2 ); //4mhz SPI
-      
-    //slave deselected
-    NSS_SET; 
+    SPI.setClockDivider( SPI_CLOCK_DIV2 ); //72mhz / 2 = SPI_FPGA @ 36Mhz 
+    SPI_DESELECTED(); 
         
     waitACK( );
     initialData( );
 
     // select the SD Card SPI
-    SPI.setModule( 1 ); 
+    SPI.setModule( SPI_SD ); 
 
-    if ( ! sd1.begin( CS_SDCARDpin, SD_SCK_MHZ( 50 ) ) ) {
+    if ( ! sd1.begin( PIN_CSSD, SD_SCK_MHZ( 50 ) ) ) {
 
         Serial.println( "SD Card initialization failed!" );
         initOSD( );
         OsdWriteOffset( 3, "          No SD Card!!! ", 1, 0, 0, 0 ); 
 
         //hold until a SD is inserted
-        while ( ! sd1.begin( CS_SDCARDpin, SD_SCK_MHZ( 50 ) ) ) {
+        while ( ! sd1.begin( PIN_CSSD, SD_SCK_MHZ( 50 ) ) ) {
             NULL;
         }
-        strcpy( file_selected, "core.mc2" ); // REFACTOR
+        strcpy( file_selected, "core." EXTENSION ); // REFACTOR
         if ( ! sd1.exists( file_selected ) ) 
         { 
-            Serial.println( "core.mc2 not found" );
+            Serial.println( "core." EXTENSION " not found" );
             CORE_ok = false;
         }
         removeOSD( );
     } 
     
-    strcpy( file_selected, "core.mc2" ); // REFACTOR
+    strcpy( file_selected, "core." EXTENSION ); // REFACTOR
     if ( ! sd1.exists( file_selected ) ) 
     { 
-        Serial.println( "core.mc2 not found" );
+        Serial.println( "core." EXTENSION " not found" );
         CORE_ok = false;
     }
       
@@ -1439,63 +1192,80 @@ void setup( void )
 }// end of setup
 
 
+
+void menuLoadNewCore (bool splash)
+{
+    EnableOsdSPI();  
+    OsdClear();
+    OSDVisible( true );
+
+    if ( splash ) {
+      splashScreen();
+    }
+
+    //if we receive a command, go to the command state (to make de development easier)
+    if ( ! navigateMenu( EXTENSION, true, true, false, false ) )  {
+      
+      OSDVisible( false );
+      
+      do {
+        waitACK();
+      } while( waitSlaveCommand( ) );
+      
+    }
+    
+    CORE_ok = true;
+}
+
+
 /**
  * Main loop - manages the core menu and the application menu
 **/
 void loop ( void )
 {
-    Serial.println( "loop" );
+  Serial.println( "loop" );
 
-    //if we have a core.mc2, lets transfer, without a menu
-    if  ( CORE_ok ) {
-        // Save the core name to use later inside the core
-        strncpy ( core_name, file_selected, strlen( file_selected ) - 4 ); 
-        strcpy ( dat_name, core_name );
-
-        Serial.print ( "core name:" ); 
-        Serial.println( core_name );
-
-        file.open( file_selected );
-
-        //led off
-        digitalWrite( LEDpin, HIGH ); 
-
-        // wait for the FPGA power on
-        delay( 300 );                       
-        setupJTAG( );
-        if ( JTAG_scan( ) == 0 ) {
-            program_FPGA( );
-        }
-    
-        Serial.println( "OK, finished" );
-
-        //loop forever waiting commands
-        while( 1 )
-        {
-            waitACK( );
-            waitSlaveCommand( );
-        }
+  //if we have a core.mc2, lets transfer, without a menu
+  if  ( CORE_ok ) {
+    // Save the core name to use later inside the core
+    for( int i = 0 ; i < sizeof( core_name ); i++ ) {
+      core_name[i] = '\0';
     }
-    else 
-    {
-        // no core, start the menu
-        EnableOsdSPI( );  
-        OsdClear( );
-        OSDVisible( true );
-        splashScreen();
+    strncpy ( core_name, file_selected, strlen( file_selected ) - 4 ); 
+    strcpy ( dat_name, core_name );
 
-        //if we receive a command, go to the command state (to make de development easier)
-        if ( ! navigateMenu( "mc2", true, true, false, false ) ) {
+    Serial.print ( "core name:" ); 
+    Serial.println( core_name );
 
-            OSDVisible( false );
+    file.open( file_selected );
 
-            while( 1 ) {
-                waitACK( );
-                waitSlaveCommand( );
-            }
-        }
-              
-        CORE_ok = true;
+    //led off
+    digitalWrite( PIN_LED, HIGH ); 
+
+    // wait for the FPGA power on
+    delay( 300 );                       
+    setupJTAG( );
+    if ( JTAG_scan( ) == 0 ) {
+      unsigned int startTime = millis();
+      unsigned int duration = 0;
+      program_FPGA( );
+      duration = millis() - startTime;
+      Serial.print( "programming time: " );
+      Serial.print( duration );
+      Serial.println( "ms" );
     }
+    releaseJTAG();
+
+    Serial.println( "OK, finished" );
+
+    //loop forever waiting commands
+    do {
+      waitACK( );
+    } while( waitSlaveCommand( ) );
+  }
+  else 
+  {
+    menuLoadNewCore( true );
+  }
         
 }  // end of loop

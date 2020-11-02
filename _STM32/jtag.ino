@@ -36,25 +36,7 @@
 // You are responsible for any legal issues arising from your use of this code.
 //
 
-
-#define TDOMASK 0x80   
-#define TDOHIGH 0x00   
-#define TDI 0x40   
-#define TMS 0x02   
-#define TCK 0x01   
-#define JTAG_ENABLE 0x00   
-// Cyclone: IR length = 10   
-#define IR_SAMPLE_PRELOAD 0x005   
-#define IR_IDCODE 0x006   
-#define IR_READ_USERCODE 0x007   
-#define IR_HIGHZ 0x00B   
-#define IR_BYPASS 0x3FF  
-
-#define IDCODE_MANUF_ALTERA 0x6E   
-#define IDCODE_MANUF_ALTERA_FAMILY_CYCLONE 0x10  
-
 #define MaxIR_ChainLength 100
-
 
 int IRlen = 0;
 int nDevices = 0;
@@ -74,55 +56,58 @@ union
     codestr b;
 } idcode;
 
-
 void JTAG_clock()  
 {
- //   digitalWrite(TCKpin, LOW); 
-    digitalWrite(TCKpin, HIGH);  
-    digitalWrite(TCKpin, LOW);
+//    digitalWrite(PIN_TCK, HIGH);  
+//    digitalWrite(PIN_TCK, LOW);
+
+      GPIOB->regs->ODR |= 1;
+      GPIOB->regs->ODR &= ~(1);
 }
 
 void JTAG_reset()   
 {   
     int i;   
     
-    digitalWrite(TMSpin, HIGH);
+    digitalWrite(PIN_TMS, HIGH);
           
     // go to reset state   
     for(i=0; i<10; i++) 
     {
-       JTAG_clock();   
+        //JTAG_clock();
+        GPIOB->regs->ODR |= 1;
+        GPIOB->regs->ODR &= ~(1);
     }
 }
 
 void JTAG_EnterSelectDR()   
 { 
     // go to select DR   
-    digitalWrite(TMSpin, LOW); JTAG_clock();   
-    digitalWrite(TMSpin, HIGH); JTAG_clock();  
+    digitalWrite(PIN_TMS, LOW); JTAG_clock();   
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();  
 }  
 
 void JTAG_EnterShiftIR()   
 {   
-  digitalWrite(TMSpin, HIGH); JTAG_clock();
-  digitalWrite(TMSpin, LOW); JTAG_clock();
-  digitalWrite(TMSpin, LOW); JTAG_clock();
+  digitalWrite(PIN_TMS, HIGH); JTAG_clock();
+  digitalWrite(PIN_TMS, LOW); JTAG_clock();
+  digitalWrite(PIN_TMS, LOW); JTAG_clock();
      
 } 
 
 void JTAG_EnterShiftDR()   
 {   
-    digitalWrite(TMSpin, LOW); JTAG_clock();
-    digitalWrite(TMSpin, LOW); JTAG_clock();   
+    digitalWrite(PIN_TMS, LOW); JTAG_clock();
+    digitalWrite(PIN_TMS, LOW); JTAG_clock();   
 
-   // digitalWrite(TMSpin, LOW); JTAG_clock(); //extra ?
+   // digitalWrite(PIN_TMS, LOW); JTAG_clock(); //extra ?
 } 
 
 void JTAG_ExitShift()   
 {   
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
-    digitalWrite(TMSpin, HIGH); JTAG_clock();   
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();   
 }   
 
 void JTAG_ReadDR(int bitlength)   
@@ -143,9 +128,9 @@ void JTAG_ReadData(int bitlength)
     bitlength--;   
     while(bitlength--)   
     {   
-        digitalWrite(TCKpin, HIGH);
+        digitalWrite(PIN_TCK, HIGH);
 
-        temp = digitalRead(TDOpin);
+        temp = digitalRead(PIN_TDO);
 
 
        // Serial.println(temp, HEX); 
@@ -153,26 +138,26 @@ void JTAG_ReadData(int bitlength)
         temp = temp << bitofs ;
         idcode.code |= temp;
         
-        digitalWrite(TCKpin, LOW);  
+        digitalWrite(PIN_TCK, LOW);  
         bitofs++;   
 
         
     }  
 
-    digitalWrite(TMSpin, HIGH);
-    digitalWrite(TCKpin, HIGH);
+    digitalWrite(PIN_TMS, HIGH);
+    digitalWrite(PIN_TCK, HIGH);
  
-    temp = digitalRead(TDOpin);
+    temp = digitalRead(PIN_TDO);
 
    // Serial.println(temp, HEX); 
     
     temp = temp << bitofs ;
     idcode.code |= temp;
         
-    digitalWrite(TCKpin, LOW); 
+    digitalWrite(PIN_TCK, LOW); 
      
-    digitalWrite(TMSpin, HIGH); JTAG_clock();   
-    digitalWrite(TMSpin, HIGH); JTAG_clock();  // go back to select-DR   
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();   
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();  // go back to select-DR   
 }
 
 int JTAG_DetermineChainLength(char* s)   
@@ -183,25 +168,25 @@ int JTAG_DetermineChainLength(char* s)
     
    
     // empty the chain (fill it with 0's)
-    digitalWrite(TDIpin, LOW);   
-    for(i=0; i<MaxIR_ChainLength; i++) { digitalWrite(TMSpin, LOW); JTAG_clock();   }
+    digitalWrite(PIN_TDI, LOW);   
+    for(i=0; i<MaxIR_ChainLength; i++) { digitalWrite(PIN_TMS, LOW); JTAG_clock();   }
     
-    digitalWrite(TCKpin, LOW);
+    digitalWrite(PIN_TCK, LOW);
          
     // feed the chain with 1's   
-    digitalWrite(TDIpin, HIGH);
+    digitalWrite(PIN_TDI, HIGH);
     for(i=0; i<MaxIR_ChainLength; i++) 
     { 
  
   
-      digitalWrite(TCKpin, HIGH);
+      digitalWrite(PIN_TCK, HIGH);
 
-       if(digitalRead(TDOpin) == HIGH) break;  
+       if(digitalRead(PIN_TDO) == HIGH) break;  
         
-           digitalWrite(TCKpin, LOW);
+           digitalWrite(PIN_TCK, LOW);
     }
    
-      digitalWrite(TCKpin, LOW);
+      digitalWrite(PIN_TCK, LOW);
 
    
          Serial.print(s); 
@@ -276,55 +261,55 @@ void JTAG_PREprogram()
     JTAG_EnterSelectDR();
     JTAG_EnterShiftIR() ;  
 
-      //  digitalWrite(TMSpin, LOW); JTAG_clock(); //extra ?
+      //  digitalWrite(PIN_TMS, LOW); JTAG_clock(); //extra ?
 
     // aqui o TMS jÃ¡ esta baixo, nao precisa de outro comando pra abaixar.
 
     // IR = PROGRAM =   00 0000 0010    // IR = CONFIG_IO = 00 0000 1101
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, HIGH); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, HIGH); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
 
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
     
-    digitalWrite(TDIpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
                         
-    digitalWrite(TDIpin, LOW);   
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW);   
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
 
     // aqui o modo Ã© exit IR 
     
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
     
      // aqui o modo Ã© update IR
         
      // Drive TDI HIGH while moving to SHIFTDR */
-    digitalWrite(TDIpin, HIGH);  
+    digitalWrite(PIN_TDI, HIGH);  
 
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
     
     // aqui o modo Ã© select dr scan
     
-    digitalWrite(TMSpin, LOW); JTAG_clock();
-    digitalWrite(TMSpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TMS, LOW); JTAG_clock();
+    digitalWrite(PIN_TMS, LOW); JTAG_clock();
     
     // aqui o modo estÃ¡ em shift dr
 
- //digitalWrite(TMSpin, LOW); JTAG_clock(); //extra ?
+ //digitalWrite(PIN_TMS, LOW); JTAG_clock(); //extra ?
 
 
     /* Issue MAX_JTAG_INIT_CLOCK clocks in SHIFTDR state */
-   digitalWrite(TDIpin, HIGH);
+   digitalWrite(PIN_TDI, HIGH);
    for(n=0;n<300;n++)
     {
-       JTAG_clock();
+        JTAG_clock();
     }
 
-     digitalWrite(TDIpin, LOW);  
+     digitalWrite(PIN_TDI, LOW);  
 }
 
 void JTAG_POSprogram()
@@ -333,11 +318,11 @@ void JTAG_POSprogram()
     
  //aqui esta no exit DR
     
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
     
     // aqui esta no update DR
     
-    digitalWrite(TMSpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TMS, LOW); JTAG_clock();
     
     //Aqui esta no RUN/IDLE
     
@@ -348,73 +333,71 @@ void JTAG_POSprogram()
 
 
     // IR = CHECK STATUS = 00 0000 0100
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, HIGH); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, HIGH); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
     
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
     
-    digitalWrite(TDIpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
     
-    digitalWrite(TDIpin, LOW);   
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW);   
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
     
     
     //aqui esta no exit IR
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
     
     //aqui esta no select dr scan
 
 
 
     
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
-    digitalWrite(TMSpin, LOW); JTAG_clock();
-    digitalWrite(TMSpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
+    digitalWrite(PIN_TMS, LOW); JTAG_clock();
+    digitalWrite(PIN_TMS, LOW); JTAG_clock();
     
     //   aqui esta no shift IR
     
     
     // IR = START = 00 0000 0011
-    digitalWrite(TDIpin, HIGH); JTAG_clock();
-    digitalWrite(TDIpin, HIGH); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, HIGH); JTAG_clock();
+    digitalWrite(PIN_TDI, HIGH); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
     
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
-    digitalWrite(TDIpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
     
-    digitalWrite(TDIpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW); JTAG_clock();
     
-    digitalWrite(TDIpin, LOW);   
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
+    digitalWrite(PIN_TDI, LOW);   
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
     
     
     //aqui esta no exit IR
     
-    digitalWrite(TMSpin, HIGH); JTAG_clock();
-    digitalWrite(TMSpin, LOW); JTAG_clock();
+    digitalWrite(PIN_TMS, HIGH); JTAG_clock();
+    digitalWrite(PIN_TMS, LOW); JTAG_clock();
     
     //aqui esta no IDLE
     
     //espera 
     for(n=0; n<200; n++) 
     {
-      JTAG_clock();
+        //JTAG_clock();
+        GPIOB->regs->ODR |= 1;
+        GPIOB->regs->ODR &= ~(1);
     }
-    
-    
-    
+
     JTAG_reset();
-
-
-      
+ 
 }
 

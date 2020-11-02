@@ -59,7 +59,7 @@ void show_files(  SPI_Directory orderedFiles[MAX_SORTED_FILES], char extensions[
         // if at start of string, wait 2sec to start rolling, then go 1 char each 0.2sec
         if ( ( *rolling_offset == 0 && (millis( ) - *idleTime ) > 2000 ) || ( *rolling_offset > 0 && (millis() - *idleTime ) > 200 ) ) {                 
           *idleTime = millis( );
-          *rolling_offset++;
+          (*rolling_offset)++;
         }
       }
       OsdWriteOffset( j, temp_filename + ( *rolling_offset), 1, 0, 0, 0 );

@@ -59,9 +59,9 @@ int readKeyboard(unsigned char *key, unsigned char *cmd) {
    */
    
   SPI.setModule(2);
-  NSS_SET; // ensure SS stays high for now
+  SPI_DESELECTED(); // ensure SS stays high for now
 
-  NSS_CLEAR;
+  SPI_SELECTED();
   keyboard_data = SPI.transfer(0x10); //command to read from ps2 keyboad
  
   keyboard_data = SPI.transfer(0);    //dummy data, just to read the response
@@ -106,7 +106,7 @@ int readKeyboard(unsigned char *key, unsigned char *cmd) {
 
   last_keyboard_data = keyboard_data;
   
-  NSS_SET; // SS high 
+  SPI_DESELECTED(); // SS high 
    
   SPI.setModule(1);
 
