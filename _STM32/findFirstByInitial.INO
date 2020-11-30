@@ -48,44 +48,88 @@ int findFirstByInitial( char letter, int totalFiles, int currentLine, SPI_Direct
   int lastDirectory = findLastDirectory( totalFiles, orderedFiles );
   int firstFile = findFirstFile( totalFiles, lastDirectory, orderedFiles );
 
+  mc_info( "Entering findFirstByInitial\nLast Directory: " );
+  mc_info( lastDirectory );
+  mc_info( orderedFiles[ lastDirectory ].filename );
+  mc_info( "\n" );
+
+  mc_info( "First File: " );
+  mc_info( firstFile );
+  mc_info( orderedFiles[ firstFile ].filename );
+  mc_info( "\n" );
+  
+
   if ( orderedFiles[currentLine].entry_type == SPI_Directory::dir ) {
     // if selected entry is a dir, and either its first letter is after the typed letter
     //    OR there is no entry with this letter THEN
     // find in regular files
     if ( toupper(orderedFiles[currentLine].filename[0]) >= letter ) {
-      selectedMin = firstFile;
+      mc_info("1");
+      // find in files
+      selected = findInIntervalByFirstByInitial( letter, firstFile, totalFiles, orderedFiles );
+      // or else, select in dir
+      if ( selected < 0 ) {
+        mc_info("2");
+        selected = findInIntervalByFirstByInitial( letter, 0, lastDirectory, orderedFiles );
+      }
+      if ( selected >= 0 ) {
+        return selected;
+      }
+      return currentLine;
     } else {
       // check next entry with this letter.
+      mc_info("3");
       selected = findInIntervalByFirstByInitial(letter,currentLine,lastDirectory,orderedFiles);
       if ( selected < 0 ) {     
+
         // find in files
         selectedMin = firstFile;
         selectedMax = totalFiles;
       } else {
+        mc_info("4");
         return selected;
       }
     }
   } else  if ( orderedFiles[currentLine].entry_type == SPI_Directory::file ) {
     if ( toupper(orderedFiles[currentLine].filename[0]) >= letter ) {
+      mc_info("5");
       // find in directories 
-      selectedMax = lastDirectory;
+      selected = findInIntervalByFirstByInitial( letter, selectedMin, lastDirectory, orderedFiles );
+      // or else, select in files
+      if ( selected < 0 ) {
+          mc_info("6");
+          selected = findInIntervalByFirstByInitial( letter, firstFile, totalFiles, orderedFiles );
+      }
+      if ( selected < 0 ) {
+          return currentLine;
+      } else {
+          return selected;
+      }
     } else {
       // check next entry with this letter.
+      mc_info("7");
       selected = findInIntervalByFirstByInitial(letter,currentLine,totalFiles,orderedFiles);
       if ( selected < 0 ) {     
+        mc_info("8");
+
         // find in regular files
         selectedMax = lastDirectory;
       } else {
+
+        mc_info("9");
         return selected;
       }
     }
   }  
+  mc_info("A");
 
   selected = findInIntervalByFirstByInitial(letter,selectedMin,selectedMax,orderedFiles);
 
   if ( selected>=0 ) {
+
     return selected;
   } else {
+
     return currentLine;
   }
 }
@@ -94,10 +138,6 @@ int findInIntervalByFirstByInitial(char letter, int selectedMin, int selectedMax
 
   int selected;
   while ( (selectedMin + 1 ) < selectedMax ) {
-    Serial.print("Min: ");
-    Serial.println(selectedMin);
-    Serial.print("Max: ");
-    Serial.println(selectedMax);
     selected = (selectedMin + selectedMax ) / 2;
     if ( toupper(orderedFiles[selected].filename[0]) >= letter ) {
       selectedMax = selected;

@@ -43,11 +43,11 @@
  * returns true whether myString ends with any extension within the array extensions (of length totalExtensions)
  */
 bool endsWithSome(char* myString, char extensions[MAX_PARSED_EXTENSIONS][MAX_LENGTH_EXTENSION], int totalExtensions) {
-  if ( totalExtensions == 0 ) {
+  if ( totalExtensions == 0 || extensions[0][1] == '*'  ) {
     return true;
   }
   for( int i=0;i<totalExtensions;i++ ) {
-    if ( endsWith( myString, extensions[i] ) ) {
+    if ( endsWith( myString, extensions[i] ) || extensions[i][1] == '*' ) {
       return true;
     }
   }
@@ -99,7 +99,7 @@ void sortFiles( SdFat sd, SPI_Directory orderedFiles[MAX_SORTED_FILES], int *tot
   int st=0;
   char filename[FILENAME_LEN]; 
     
-  Serial.println("Sorting files");  
+  mc_info( "Entering sortFiles\n" );  
 
   sd.vwd()->rewind(); 
 
@@ -120,24 +120,25 @@ void sortFiles( SdFat sd, SPI_Directory orderedFiles[MAX_SORTED_FILES], int *tot
     if ( ( myEntry.isDir() && showDir ) || endsWithSome(filename,extensions,totalExtensions) ) {
       strcpy( orderedFiles[i].filename, filename );
       orderedFiles[i].entry_type = myEntry.isDir() ? SPI_Directory::dir : SPI_Directory::file; //SPI_Directory
-      Serial.println(filename);
+      mc_info( filename );
+      mc_info( "\n" );
       i++;  
     } 
     if (i>=MAX_SORTED_FILES) {
-      Serial.println("ERROR: more than MAX_SORTED_FILES files in this directory - truncating!");
+      mc_info("ERROR: more than MAX_SORTED_FILES files in this directory - truncating!\n");
       break;
     }
     myEntry.close();
   }
   ct = i;
 
-  Serial.print(ct);
-  Serial.print(" filtered files and directories found");
+  mc_info(ct);
+  mc_info(" filtered files and directories found\n");
 
   // sort (skipping the first entry ".." if applicable)
   qsort( orderedFiles + st , ct - st, sizeof(SPI_Directory), mystrcmp );
   
-  Serial.println("End sorting files");  
+  mc_info("End sorting files\n");  
   *totalFiles = ct;
 }
 

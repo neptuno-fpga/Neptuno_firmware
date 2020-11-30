@@ -56,6 +56,7 @@ union
     codestr b;
 } idcode;
 
+/*
 void JTAG_clock()  
 {
 //    digitalWrite(PIN_TCK, HIGH);  
@@ -64,6 +65,7 @@ void JTAG_clock()
       GPIOB->regs->ODR |= 1;
       GPIOB->regs->ODR &= ~(1);
 }
+*/
 
 void JTAG_reset()   
 {   

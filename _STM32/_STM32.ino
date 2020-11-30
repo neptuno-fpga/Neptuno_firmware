@@ -44,6 +44,9 @@
 // spi version 1.10
 const unsigned char version[4] = "110"; 
 
+// 0 => no messages, just errors 1 => debug information (function: mc_info) 2 => highly repetitive debug information (functions: mc_info and mc_debug)
+#define MC_DEBUG 0
+
 // the OSD screen width in chars
 #define SCREEN_WIDTH_IN_CHARS 32
 
@@ -100,11 +103,20 @@ const unsigned char version[4] = "110";
 // the maximum length of extensions (including ".")
 #define MAX_LENGTH_EXTENSION 5
 
-// the maximum of options to be show
+// the maximum of options to be shown
+// DONT CHANGE UNLESS YOU REALLY KNOW WHAT YOU'RE DOING
 #define MAX_OPTIONS 32
 
 // the maximum length of an option title
-#define OPTION_LEN  32
+#define OPTION_LEN  64 
+
+#define START_PIN  PA8
+#define nWAITpin  PA15
+
+#define NSS_PIN  PB12
+#define NSS_SET ( GPIOB->regs->BSRR = (1U << 12) )
+#define NSS_CLEAR ( GPIOB->regs->BRR = (1U << 12) )
+
 
 // one entry in a directory (may be either a file or directory)
 struct SPI_Directory {
@@ -115,6 +127,8 @@ struct SPI_Directory {
 unsigned char core_mod = 0;
 
 unsigned char transfer_index =0;
+
+bool SD_disabled = false;
 
 char core_name[32];
 char dat_name[32];
@@ -130,20 +144,49 @@ char sd_buffer[1024];
 unsigned char ret;
 unsigned long menu_opened;
 
-unsigned char option_sel[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-unsigned char option_num[32] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+// globais relacionadas ao menu de opções in-core (F12)
+// opcao selecionada (para cada ítem do menu in-core, qual opção foi selecionada (no caso de um menu de múltiplas opções ))
+// TODO utilizar MAX_OPTIONS
+unsigned char option_sel[MAX_OPTIONS] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
+// numero de opções possível (valores especiais => 98 para carregar novo core e 99 para carregar novo arquivo)
+// TODO utilizar MAX_OPTIONS
+unsigned char option_num[MAX_OPTIONS] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 unsigned char key;
 unsigned char cmd;
 
 // only the 5 lower bit are keys
-unsigned char last_key = 31; 
+unsigned char last_key = 31;
 unsigned char last_cmd = 1;
     
 unsigned char last_ret;
 unsigned char cur_select = 0;
 
 char file_selected[64];
+
+// show debug messages depending on MC_DEBUG
+void mc_debug( char* msg ) {
+#if MC_DEBUG > 1
+  Serial.print( msg );
+#endif
+}
+void mc_debug( int val ) {
+#if MC_DEBUG > 1
+  Serial.print( val );
+#endif
+}
+
+void mc_info( char* msg ) {
+#if MC_DEBUG > 0
+  Serial.print( msg );
+#endif
+}
+void mc_info( int val ) {
+#if MC_DEBUG > 0
+  Serial.print( val );
+#endif
+}
 
 // TODO: TRY TO USE endsWith, defined in fileSort (should it be there??)
 bool isExtension( char* filename, char* extension ) {
@@ -187,13 +230,25 @@ void SendStatusWord (void)
 {
     //generate the Status Word
     unsigned int statusWord = 0;
-    for ( int j = 0; j < 32; j++ ) {
+    mc_debug( "statusWord\n" );
+    for ( int j = 0; j < MAX_OPTIONS; j++ ) {
     
-      statusWord += ( option_sel[ j ] & 0x07 ) << ( option_sel[ j ] >> 3 );    
+      statusWord |= ( option_sel[ j ] & 0x07 ) << ( option_sel[ j ] >> 3 );    
+      mc_debug( "  sel[" );
+      mc_debug( j );
+      mc_debug( "]=" );
+      mc_debug( option_sel[j] );
+      mc_debug( " - LSB " );
+      mc_debug( option_sel[j] & 0x07);
+      mc_debug( " - MSB" );
+      mc_debug( option_sel[j] >> 3 );
+      mc_debug( " - byte" );
+      mc_debug( (option_sel[j] & 0x07 ) << ( option_sel[j] >> 3 ) );
+      mc_debug( "\n" );
     }
-    
-    //Serial.print( "statusWord " );
-    //Serial.println( statusWord, BIN );
+    mc_debug("result: ");    
+    mc_debug( statusWord );
+    mc_debug( "\n");
     SPI_SELECTED();
     
     // cmd to send the status data
@@ -247,16 +302,20 @@ bool navigateMenu( char* extension, bool canAbort, bool filter, bool showDir, bo
   
   cur_select=0;
   
-  Serial.print( "navigateMenu - extension: " );
-  Serial.print( extension );
-  Serial.print( "| canAbort " );
-  Serial.print( canAbort ? "true" : "false" );
-  Serial.print( "| filter " );
-  Serial.print( filter ? "true" : "false" );
-  Serial.print( "| showDir" );
-  Serial.print( showDir ? "true" : "false" );
-  Serial.print( "| showExtensions " );
-  Serial.println( showExtensions ? "true" : "false" );
+  mc_info( "Entering navigateMenu - extension: " );
+  mc_info( extension );
+  mc_info( "| canAbort " );
+  mc_info( canAbort );
+  mc_info( "| filter " );
+  mc_info( filter );
+  mc_info( "| showDir" );
+  mc_info( showDir );
+  mc_info( "| showExtensions " );
+  if ( showExtensions ) {
+    mc_info( "true\n");
+  } else {
+    mc_info( "false\n");
+  }
 
   // prepare extensions
   int totalExtensions;
@@ -350,21 +409,24 @@ bool navigateMenu( char* extension, bool canAbort, bool filter, bool showDir, bo
         case KEY_Z:
         //case KEY_0:
           currentLine = findFirstByInitial( mapKeyToChar( key ), totalFiles, currentLine, orderedFiles );
+          mc_info( "New currentLine: ");
+          mc_info( currentLine );
+          mc_info( "\n" );          
           break;
           
         case KEY_RET: // enter
-          Serial.print( "Pressed enter... " );
-          Serial.print( orderedFiles[ currentLine ].entry_type );
-          Serial.println( " yep" );
+          mc_info( "Pressed enter... entry_type=" );
+          mc_info( orderedFiles[ currentLine ].entry_type );
+          mc_info( "\n" );
           
           if ( orderedFiles[ currentLine ].entry_type == SPI_Directory::dir ) { 
-            
-            Serial.print( "Changing to directory " );
-            Serial.println( orderedFiles[ currentLine ].filename );
+            mc_info( "Changing to directory " );
+            mc_info( orderedFiles[ currentLine ].filename );
+            mc_info( "\n" );
             if ( strcmp( orderedFiles[ currentLine ].filename, ".." ) == 0 ) {
-              sd1.chdir( );
+                sd1.chdir( ); // TODO back one level only
             } else {
-              sd1.chdir( orderedFiles[ currentLine ].filename );
+                sd1.chdir( orderedFiles[ currentLine ].filename );
             }
                       
             // retrieve files from this dir
@@ -392,14 +454,15 @@ bool navigateMenu( char* extension, bool canAbort, bool filter, bool showDir, bo
           case KEY_NOTHING: // nothing was pressed
             break;
           default:
-            Serial.print("Unrecognized key pressed: ");
-            Serial.println(key);
+            mc_info( "Unrecognized key pressed: " );
+            mc_info( key );
+            mc_info( "\n" );
             break;
       }
 
       //F12 - abort
       if ( ( cmd == 0x01 || cmd == 0x02 || cmd == 0x03 ) && canAbort ) { 
-        Serial.println("Aborting");
+        mc_info( "Aborting by request" );
         return false;  
       }
             
@@ -419,7 +482,6 @@ void waitACK (void)
   // set second SPI on PA12-PA15
   SPI.setModule(2);
   
-  
   SPI_DESELECTED(); 
   
   // syncronize and clear the SPI buffers
@@ -434,7 +496,7 @@ void waitACK (void)
     // wait a little to receive the last bit
     delay(100);
     
-     
+    // ensure SS stays high for now 
     SPI_DESELECTED(); 
      
     if( last_ret != ret ) {
@@ -456,7 +518,7 @@ bool waitSlaveCommand( void ) {
     unsigned char cmd;
     unsigned int char_count = 0;
 
-    //Serial.println( "\nwaitSlaveCommand" );
+   // mc_info( "Entering waitSlaveCommand\n" );
 
     // set second SPI on PA12-PA15
     SPI.setModule( SPI_FPGA );
@@ -466,7 +528,7 @@ bool waitSlaveCommand( void ) {
     SPI_SELECTED();
   
     //read data from slave
-    ret = SPI.transfer(0x10); 
+    ret = SPI.transfer( 0x10 ); 
           
     //wait for commands
     while( true ) {
@@ -485,6 +547,8 @@ bool waitSlaveCommand( void ) {
             OsdClear();
             EnableOsdSPI();
 
+            mc_info("Starting to get menu data...\n");
+
             // let's ask if we need a specific file or need to show the menu
             // command 0x14 - get STR_CONFIG
             ret = SPI.transfer(0x14); 
@@ -498,33 +562,39 @@ bool waitSlaveCommand( void ) {
                 // Serial.print ("\n command 0x14 reply:");
                 // Serial.print (ret);
                 // Serial.print ("=");
-                Serial.print( ( char ) ret );
+                mc_info( ( char ) ret );
                 char_count++;
                     
             }
-            // Serial.println (" ");
+            mc_info( "Finished getting option descriptor\n" );
 
-
-            // read an external ".INI", if exists
-            // strcpy(core_name,"robotron"); //debug
-            strcpy( file_selected, core_name );
-            strcat( file_selected, ".ini" );
-            file.open( file_selected );
-
-            Serial.print( file_selected );
-
-            if ( file.isOpen( ) ) {
+            if ( !SD_disabled ) {
+              // read an external ".INI", if exists
+              // TODO refactor to a ini reader function
+              
+              // strcpy(core_name,"robotron"); //debug
+              mc_info("Starting reading INI file (if any)\n");
+              strcpy( file_selected, core_name );
+              strcat( file_selected, ".ini" );
+              file.open( file_selected );
+              
+              mc_info( "File selected: " );
+              mc_info( file_selected );
+              // TODO temos um bug aqui, quando entra no core do intellivision, dá f12 com o stm na posição programar
+              if ( file.isOpen( ) ) {
                   
                 char line[128];
                 char *token; 
                 unsigned int n;
                 unsigned int count;
 
-                Serial.println( " opened" );
+                mc_info( "...opened\n" );
                 char_count-- ;
 
                 while( ( n = file.fgets( line, sizeof( line ) ) ) > 0 ) {
-  
+
+                    mc_info( line );
+                    mc_info( "\n" );
                     int i=0;
                     for ( i = 0; i < 128; i++ ) {
                         //clip the line at the CR or LF
@@ -540,7 +610,9 @@ bool waitSlaveCommand( void ) {
                     if ( strcmp( strlwr( token ), "conf" ) == 0 ) {
 
                         token = strtok( NULL, "=" );
-                        //Serial.println(token);
+                        mc_info( "Token: " );
+                        mc_info( token );
+                        mc_info( "\n" );
 
                         int i=0; 
 
@@ -560,17 +632,18 @@ bool waitSlaveCommand( void ) {
 
                         //MOD option, to assign a hardware number (core variant)
                         token = strtok(NULL, "=");
-                        Serial.print("MOD = ");
-                        Serial.println(atoi(token),HEX);
+                        mc_info( "MOD = " );
+                        mc_info( atoi( token ) );
+                        mc_info( "\n" );
                         core_mod = atoi(token);
 
                     } else if( strcmp( strlwr( token ), "name" ) == 0 ) {
                         //NAME option, to force a CORE_NAME (different than the loaded .mc2)
                         token = strtok(NULL, "=");
                         strcpy(dat_name,token);
-                        Serial.print("|");
-                        Serial.print(token);
-                        Serial.println("|");
+                        mc_info("|");
+                        mc_info(token);
+                        mc_info("|\n");
                     } else if ( strcmp( strlwr( token ), "options" ) == 0 ) {
                         int i = 0;
                         token = strtok( NULL, "," );
@@ -590,114 +663,137 @@ bool waitSlaveCommand( void ) {
                 sd_buffer[char_count] = ';';
                 sd_buffer[++char_count] = '\0';
 
-                Serial.print("final:");
-                Serial.print(sd_buffer);
-                Serial.println("|");
+                mc_info("final:");
+                mc_info(sd_buffer);
+                mc_info("|\n");
                      
             } else {
-                Serial.println(" - no file");
+                mc_info(" - no file\n");
             }
             file.close();
             // end .INI parse process
+            mc_info("Ended reading INI file\n");
+          } // end if ! SD_DISABLED
+          
+          // add the "load other" at the end of Options menu
+          char_count--;
+          char temp[22] = { ";R,Load Other Core..." };
+          for ( int i = 0; i < sizeof( temp ); i ++ ) {
+            sd_buffer[ char_count ++ ] = temp[i];
+          }
 
-            // add the "load other" at the end of Options menu
-            char_count--;
-            char temp[22] = { ";R,Load Other Core..." };
-            for ( int i = 0; i < sizeof( temp ); i ++ ) {
-              sd_buffer[ char_count ++ ] = temp[i];
-            }
+          sd_buffer[ char_count ] = ';';
+          sd_buffer[ ++ char_count ] = '\0';
 
-            sd_buffer[ char_count ] = ';';
-            sd_buffer[ ++ char_count ] = '\0';
+          mc_info( "After 'other':" );
+          mc_info( sd_buffer );
+          mc_info( "|\n" );
 
-            Serial.print( "After 'other':" );
-            Serial.print( sd_buffer );
-            Serial.println( "|" );
+          //check if we have a CONF_STR
+          if( char_count > 1 && ( cmd == 0x01 || cmd == 0x03 ) ) {
+              char temp[64];
 
-            //check if we have a CONF_STR
-            if( char_count > 1 && ( cmd == 0x01 || cmd == 0x03 ) ) {
-                char temp[64];
+              mc_info("CMD 0x01\n");
 
-                Serial.println("CMD 0x01");
+              // command 0x55 - UIO_FILE_INDEX;
+              SPI.transfer(0x55); 
+              // index 0 - ROM
+              SPI.transfer(0x00); 
 
-                // command 0x55 - UIO_FILE_INDEX;
-                SPI.transfer(0x55); 
-                // index 0 - ROM
-                SPI.transfer(0x00); 
+              // slave deselected
+              SPI_DESELECTED(); 
+              // slave selected
+              SPI_SELECTED(); 
 
-                // slave deselected
-                SPI_DESELECTED(); 
-                // slave selected
-                SPI_SELECTED(); 
 
-                //initial data pump only when cmd=0x01 
-                if( sd_buffer[0] == 'P' && sd_buffer[1] == ',' && cmd == 0x01 ) {
-                    //datapump only
-                    int strpos;
+              if ( sd_buffer[0] == 'D' && sd_buffer[1] == ',' && cmd == 0x01 ) {
+                SPI.setModule( SPI_SD );
+                SPI.end();
+                pinMode( PA4, INPUT_PULLUP );
+                pinMode( PA5, INPUT_PULLUP );
+                pinMode( PA6, INPUT_PULLUP );
+                pinMode( PA7, INPUT_PULLUP );
 
-                    char *token = strtok(sd_buffer, ",");
-                    token = strtok(NULL, ",");
-                    token = strtok(token, ";");
+                option_sel[ 31 ] = 0xff;
+                SendStatusWord( ); // update the core with the sd status disable
+                SD_disabled = true;
+                mc_info("SD disabled\n");
+                spi_osd_cmd_cont( 0x40 ); // hide the OSD
+              }
+              //initial data pump only when cmd=0x01 
+              else if( sd_buffer[0] == 'P' && sd_buffer[1] == ',' && cmd == 0x01 ) {
+                  //datapump only
+                  int strpos;
 
-                    Serial.print ("\ntoken pump:");
-                    Serial.print (token);
+                  char *token = strtok(sd_buffer, ",");
+                  token = strtok(NULL, ",");
+                  token = strtok(token, ";");
 
-                    // test to see if the two strings are equal
-                    if ( strcmp( token, "CORE_NAME.dat" )  == 0 )  {
-                        strcpy( file_selected, dat_name );
-                        strcat( file_selected, ".dat" );
-                    } else {
-                        strcpy( file_selected, token );
-                    }
-                    transfer_index = 0; //index for the ROM
-                    dataPump();
-                    SendStatusWord(); //update the core with the read options
+                  mc_info( "\ntoken pump:" );
+                  mc_info( token );
+                  mc_info( "\n" );
 
-                } else {
-                    //we have an "options" menu
-                    SendStatusWord(); //update the core with the read options
-                    // is it a new core load?
-                    if ( ! navigateOptions() ) {
-                      return false; 
-                    }
-                    SaveIni(); //save the options on SD card
-                    OSDVisible(false);
-                }
-                     
-            } else {
-                //we dont have a STR_CONF, so show the menu or CMD = 0x02
-                Serial.println( "CMD 0x02" );
-                Serial.println( "we dont have a STR_CONF, so show the menu" );
-                SPI_DESELECTED(); 
+                  // test to see if the two strings are equal
+                  if ( strcmp( token, "CORE_NAME.dat" )  == 0 )  {
+                      strcpy( file_selected, dat_name );
+                      strcat( file_selected, ".dat" );
+                  } else {
+                      strcpy( file_selected, token );
+                  }
+                  //index for the ROM
+                  transfer_index = 0; 
+                  dataPump();
+                  
+                  //update the core with the read options
+                  SendStatusWord(); 
 
-                //show the menu to navigate
-                OSDVisible( true );
+              } else {
+                  //we have an "options" menu
+                  //update the core with the read options
+                  SendStatusWord(); 
 
-                if( navigateMenu( "", true, false, false, false ) ) {
-                    
-                    SPI_DESELECTED(); 
-                    // command 0x55 - UIO_FILE_INDEX;
-                    spi_osd_cmd_cont( 0x55 );
-                    // index as 0x01 for Sinclair QL  
-                    SPI.transfer( 0x01 ); 
+                  // is it a new core load?
+                  if ( ! navigateOptions() ) {
+                    return false; 
+                  }
+                  SaveIni(); //save the options on SD card
+                  OSDVisible(false);
+              }
+                   
+          } else {
+              //we dont have a STR_CONF, so show the menu or CMD = 0x02
+              mc_info( "CMD 0x02\n" );
+              mc_info( "we dont have a STR_CONF, so show the menu\n" );
+              SPI_DESELECTED(); 
 
-                    
-                    SPI_DESELECTED(); 
-                    //slave selected
-                    SPI_SELECTED(); 
+              //show the menu to navigate
+              OSDVisible( true );
 
-                    Serial.println( "we will execute a data pump 2!" );     
-                    dataPump( );
-                }
-      
-                OSDVisible( false );
-            }
-                
-            break; //ok!
-        } else if ( cmd == 0x07 ) {
-            // Serial.println("CMD 0x07");
-            break;
-        }
+              if( navigateMenu( "", true, false, false, false ) ) {
+                  //slave deselected
+                  SPI_DESELECTED(); 
+                  // command 0x55 - UIO_FILE_INDEX;
+                  spi_osd_cmd_cont( 0x55 );
+                  // index as 0x01 for Sinclair QL  
+                  SPI.transfer( 0x01 ); 
+
+                  //slave deselected
+                  SPI_DESELECTED(); 
+                  //slave selected
+                  SPI_SELECTED(); 
+
+                  mc_info( "we will execute a data pump 2!\n" );
+                  dataPump( );
+              }
+    
+              OSDVisible( false );
+          }
+              
+          break; //ok!
+      } else if ( cmd == 0x07 ) {
+          // Serial.println("CMD 0x07");
+          break;
+      }
           
     }
    
@@ -706,17 +802,18 @@ bool waitSlaveCommand( void ) {
 }
 
 void SaveIni(void) {
+    if ( SD_disabled ) {
+      return;
+    }
     char temp_file[9] = { "temp.ini" };
     SdFile  tfile;
 
     strcpy(file_selected,core_name);
     strcat(file_selected,".ini");
 
-    if ( strncmp( file_selected, ".ini", 4 ) == 0 ) 
-    {
-       //no core name, so don't save anything
-        Serial.print( "Aborting SaveIni" );
-        return;
+    if ( strncmp( file_selected, ".ini", 4 ) == 0 ) {
+      Serial.println("Aborting SaveIni");
+      return;
     }
 
     if ( ! sd1.exists( file_selected ) ) { 
@@ -820,7 +917,7 @@ void dataPump( void ) {
                  
     SPI.setModule( SPI_FPGA );
 
-    
+    // ensure SS stays high for now
     SPI_DESELECTED(); 
 
     Serial.print( "\ndata pump : " );
@@ -895,29 +992,10 @@ void dataPump( void ) {
         SPI_SELECTED();  
         ret = SPI.transfer( 0x61 ); //start the data pump to slave
 
-/*     esse faz o SF alpha em 29 segundos
-        for ( int f=0; f < to_read; f+=4 ) {
-            //check for a WAIT state
-            if ( ! CHECK_WAIT() ) {
-                Serial.println( "waiting SPI" );
-                delay( 1 );
-            } 
-            
-            SPI.write( sd_buffer[ f     ]);
-            SPI.write( sd_buffer[ f + 1 ]);
-            SPI.write( sd_buffer[ f + 2 ]);
-            SPI.write( sd_buffer[ f + 3 ]);
-                
-        }
-        */
-
-        // substitui o bloco acima. SF alpha em 22 segundos
-        SPI.write(sd_buffer, to_read);
-
-
+        SPI.write( sd_buffer, to_read );
         
         // end the pumped block
-        SPI_DESELECTED();                
+        SPI_DESELECTED();
 
         loaded += to_read;
         percent = loaded * 100 / file_size;
@@ -972,20 +1050,21 @@ void dataPump( void ) {
     SPI_DESELECTED(); 
 }
 
+
+
 //   JTAG
 void setupJTAG( ) {
-
     pinMode( PIN_TCK, OUTPUT );
     pinMode( PIN_TDO, INPUT_PULLUP );
     pinMode( PIN_TMS, OUTPUT );
     pinMode( PIN_TDI, OUTPUT );
+
     digitalWrite( PIN_TCK, LOW );
     digitalWrite( PIN_TMS, LOW );
     digitalWrite( PIN_TDI, LOW );
 }
 
 void releaseJTAG( ) {
-
     pinMode( PIN_TCK, INPUT_PULLUP );
     pinMode( PIN_TDO, INPUT_PULLUP );
     pinMode( PIN_TMS, INPUT_PULLUP );
@@ -1039,15 +1118,15 @@ void program_FPGA( ) {
         for( n = 0; n <= 7; n++ )
         {
           if ( ( sd_buffer[ f ] >> n ) & 0x01 ) {
-            // tdipin = 1
+            // tdipin =1
             GPIOB->regs->ODR |= 2;
           }
           else {
             // tdipin = 0
             GPIOB->regs->ODR &= ~(2);  
           }
-          
-           JTAG_clock();
+
+          JTAG_clock();
         }
       }
       loaded += to_read;
@@ -1129,10 +1208,10 @@ void setup( void )
     //Initialize serial and wait for port to open:
     Serial.begin( 115200 );
  
-/*    while ( ! Serial ) {
+    while ( ! Serial ) {
       // wait for serial port to connect. Needed for native USB port only
       delay( 100 ); 
-    }*/
+    }
     
     Serial.println( "Serial ok..." );
 
@@ -1141,7 +1220,6 @@ void setup( void )
 
     pinMode( PIN_nWAIT, INPUT_PULLUP );
     pinMode( PIN_LED, OUTPUT );
-
     
     // configure NSS pin
     pinMode( PIN_NSS, OUTPUT ); 
@@ -1149,10 +1227,16 @@ void setup( void )
     // set second SPI on PA12-PA15
     SPI.setModule( SPI_FPGA );
 
-    //setup SPI interface
+    // ensure SS stays high for now
     SPI_DESELECTED(); 
     SPI.begin( );
-    SPI.setClockDivider( SPI_CLOCK_DIV2 ); //72mhz / 2 = SPI_FPGA @ 36Mhz 
+
+    // SPI_CLOCK_DIV2 => 4mhz SPI
+    // SPI_CLOCK_DIV4 => 2mhz SPI
+    // SPI_CLOCK_DIV8 => 1mhz SPI
+    SPI.setClockDivider( SPI_CLOCK_DIV2 ); //4mhz SPI
+      
+    //slave deselected
     SPI_DESELECTED(); 
         
     waitACK( );
@@ -1171,7 +1255,7 @@ void setup( void )
         while ( ! sd1.begin( PIN_CSSD, SD_SCK_MHZ( 50 ) ) ) {
             NULL;
         }
-        strcpy( file_selected, "core." EXTENSION ); // REFACTOR
+        strcpy( file_selected, "core." EXTENSION ); // REFACTOR with code below
         if ( ! sd1.exists( file_selected ) ) 
         { 
             Serial.println( "core." EXTENSION " not found" );
@@ -1180,7 +1264,7 @@ void setup( void )
         removeOSD( );
     } 
     
-    strcpy( file_selected, "core." EXTENSION ); // REFACTOR
+    strcpy( file_selected, "core." EXTENSION ); // REFACTOR with code above
     if ( ! sd1.exists( file_selected ) ) 
     { 
         Serial.println( "core." EXTENSION " not found" );
@@ -1225,7 +1309,7 @@ void loop ( void )
 {
   Serial.println( "loop" );
 
-  //if we have a core.mc2, lets transfer, without a menu
+  //if we have a core.EXTENSON, lets transfer, without a menu
   if  ( CORE_ok ) {
     // Save the core name to use later inside the core
     for( int i = 0 ; i < sizeof( core_name ); i++ ) {

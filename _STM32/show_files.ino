@@ -48,9 +48,10 @@ void show_files(  SPI_Directory orderedFiles[MAX_SORTED_FILES], char extensions[
       if ( strlen( temp_filename ) < SCREEN_WIDTH_IN_CHARS ) {
         *rolling_offset = 0;
       } else {
-      
+
+
         // if rolled all the way to the end of string, stop, wait 2sec and start again
-        if ( *rolling_offset + 32 > strlen( temp_filename )  ) {                
+        if ( *rolling_offset + SCREEN_WIDTH_IN_CHARS > strlen( temp_filename )  ) {                
           if ( ( millis( ) - *idleTime ) > 2000 ) {
             *idleTime = millis( );
             *rolling_offset = 0;

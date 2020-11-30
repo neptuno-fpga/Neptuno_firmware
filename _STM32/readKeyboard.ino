@@ -58,7 +58,7 @@ int readKeyboard(unsigned char *key, unsigned char *cmd) {
    * 2 => something pressed for more than 1sec (should generate onKeyPress event once per 0.2sec)
    */
    
-  SPI.setModule(2);
+  SPI.setModule( SPI_FPGA );
   SPI_DESELECTED(); // ensure SS stays high for now
 
   SPI_SELECTED();
@@ -108,15 +108,16 @@ int readKeyboard(unsigned char *key, unsigned char *cmd) {
   
   SPI_DESELECTED(); // SS high 
    
-  SPI.setModule(1);
+  SPI.setModule( SPI_SD );
 
   if ( event == EVENT_KEYPRESS ) {
-    Serial.print("OnKeyPress: ");
-    Serial.print(keyboard_data);
-    Serial.print(" cmd: ");
-    Serial.print(*cmd);
-    Serial.print(" key: ");
-    Serial.println(*key);
+    mc_info( "OnKeyPress: " );
+    mc_info( keyboard_data );
+    mc_info( " cmd: " );
+    mc_info( *cmd );
+    mc_info( " key: " );
+    mc_info( *key );
+    mc_info( "\n" );
   }
   return event;
 }
