@@ -1,8 +1,0 @@
-<?xml version="1.0" ?>
-<LOG_ROOT>
-	<PROJECT NAME="mc2">
-		<CBX_INST_ENTRY INSTANCE_NAME="|top|osd:osd1|altsyncram:osd_buffer_rtl_0" CBX_FILE_NAME="altsyncram_dvd1.tdf"/>
-		<CBX_INST_ENTRY INSTANCE_NAME="|top|pll:U00|altpll:altpll_component" CBX_FILE_NAME="pll_altpll.v"/>
-		<CBX_INST_ENTRY INSTANCE_NAME="|top|scandoubler:scandoubler1|altsyncram:sd_buffer_rtl_0" CBX_FILE_NAME="altsyncram_j8d1.tdf"/>
-	</PROJECT>
-</LOG_ROOT>

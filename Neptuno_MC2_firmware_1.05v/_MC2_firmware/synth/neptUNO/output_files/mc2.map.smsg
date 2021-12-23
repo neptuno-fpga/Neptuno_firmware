@@ -1,3 +1,0 @@
-Warning (10268): Verilog HDL information at osd.sv(136): always construct contains both blocking and non-blocking assignments
-Info (10281): Verilog HDL Declaration information at vga.v(11): object "hs" differs only in case from object "HS" in the same scope
-Info (10281): Verilog HDL Declaration information at vga.v(12): object "vs" differs only in case from object "VS" in the same scope
